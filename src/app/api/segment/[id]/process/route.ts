@@ -54,11 +54,13 @@ export async function POST(
 
     try {
       console.log(`✂️  Extracting segment (${segment.startTime}s - ${segment.endTime}s)...`);
+      console.log(`📐 Using crop position: ${((segment.cropX ?? 0.5) * 100).toFixed(0)}%`);
       await extractVideoSegment({
         inputPath: videoPath,
         outputPath,
         startTime: segment.startTime,
         endTime: segment.endTime,
+        cropX: segment.cropX ?? 0.5,
       });
       console.log(`✅ Segment extracted: ${outputPath}`);
     } catch (error: any) {

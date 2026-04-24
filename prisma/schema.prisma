@@ -43,6 +43,9 @@ model Segment {
   transcript  String?
   transcriptAnalysis String? // AI analysis of transcript content for quality grading
   
+  // Vertical crop position (0-1, where 0.5 is center)
+  cropX       Float    @default(0.5)
+  
   // Output
   outputPath  String?
   processed   Boolean  @default(false)

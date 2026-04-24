@@ -13,20 +13,48 @@ export interface VideoProcessingOptions {
   endTime: number;
   format?: 'mp4';
   resolution?: '1080x1920' | '720x1280'; // Vertical format for shorts
+  cropX?: number; // Horizontal crop position (0-1, 0.5 is center)
 }
 
 export async function extractVideoSegment(
   options: VideoProcessingOptions
 ): Promise<string> {
-  const { inputPath, outputPath, startTime, endTime, resolution = '1080x1920' } = options;
+  const { inputPath, outputPath, startTime, endTime, resolution = '1080x1920', cropX = 0.5 } = options;
 
   return new Promise((resolve, reject) => {
     const duration = endTime - startTime;
+    
+    // Calculate crop filter for vertical video (9:16 aspect ratio)
+    // Input is typically 16:9 (1920x1080 or similar)
+    // Output is 9:16 (1080x1920)
+    
+    // For a 1920x1080 input:
+    // - Output width should be 1080 (9/16 of output height 1920)
+    // - We need to crop the width from 1920 to 607.5 (to maintain 9:16 when scaled)
+    // - Then scale to 1080x1920
+    
+    // Calculate crop parameters
+    // cropX: 0 = left, 0.5 = center, 1 = right
+    const outputWidth = 1080;
+    const outputHeight = 1920;
+    const targetAspect = outputWidth / outputHeight; // 0.5625 (9:16)
+    
+    // Crop filter: crop=out_w:out_h:x:y
+    // We'll use scale and crop together
+    // First get input dimensions, then calculate crop
+    
+    const videoFilters = [
+      // Method: crop a vertical slice, then scale to target resolution
+      // For 16:9 source (1920x1080): crop width = 1080 * (9/16) = 607.5
+      // Position the crop based on cropX
+      `crop=in_h*9/16:in_h:(in_w-in_h*9/16)*${cropX}:0`,
+      `scale=${outputWidth}:${outputHeight}`,
+    ].join(',');
 
     ffmpeg(inputPath)
       .setStartTime(startTime)
       .setDuration(duration)
-      .size(resolution)
+      .videoFilters(videoFilters)
       .videoCodec('libx264')
       .audioCodec('aac')
       .outputOptions([
@@ -37,6 +65,7 @@ export async function extractVideoSegment(
       .output(outputPath)
       .on('start', (commandLine: string) => {
         console.log('FFmpeg command:', commandLine);
+        console.log(`📐 Crop position: ${(cropX * 100).toFixed(0)}% from left`);
       })
       .on('progress', (progress: any) => {
         console.log(`Processing: ${progress.percent?.toFixed(1) || 0}% done`);

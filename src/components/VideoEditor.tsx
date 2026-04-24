@@ -22,6 +22,7 @@ interface Segment {
   transcript?: string | null;
   transcriptAnalysis?: string | null;
   thumbnailUrl?: string | null;
+  cropX?: number; // Horizontal crop position (0-1, 0.5 is center)
   processed?: boolean;
   outputPath?: string | null;
 }
@@ -48,6 +49,9 @@ export default function VideoEditor({ videoId, onProcess, onBack }: VideoEditorP
   const [editingSegmentId, setEditingSegmentId] = useState<string | null>(null);
   const [editStartTime, setEditStartTime] = useState<string>("");
   const [editEndTime, setEditEndTime] = useState<string>("");
+  const [previewSegmentId, setPreviewSegmentId] = useState<string | null>(null);
+  const [isDraggingCrop, setIsDraggingCrop] = useState(false);
+  const playerContainerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     loadVideo();
@@ -165,6 +169,50 @@ export default function VideoEditor({ videoId, onProcess, onBack }: VideoEditorP
     const secs = parseInt(parts[1], 10);
     if (isNaN(mins) || isNaN(secs)) return NaN;
     return mins * 60 + secs;
+  };
+
+  const togglePreview = (segmentId: string | null) => {
+    setPreviewSegmentId(segmentId);
+    if (segmentId) {
+      const segment = segments.find(s => s.id === segmentId);
+      if (segment) {
+        seekToSegment(segment.startTime);
+      }
+    }
+  };
+
+  const updateCropPosition = async (segmentId: string, cropX: number) => {
+    try {
+      // Update local state immediately
+      setSegments(prev =>
+        prev.map(seg =>
+          seg.id === segmentId
+            ? { ...seg, cropX, processed: false, outputPath: null }
+            : seg
+        )
+      );
+
+      // Save to database
+      await axios.patch(`/api/segment/${segmentId}/update-crop`, { cropX });
+      console.log(`✅ Crop position updated: ${(cropX * 100).toFixed(0)}%`);
+    } catch (error) {
+      console.error('Error updating crop position:', error);
+    }
+  };
+
+  const handleCropDrag = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!isDraggingCrop || !previewSegmentId || !playerContainerRef.current) return;
+    
+    const container = playerContainerRef.current;
+    const rect = container.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const containerWidth = rect.width;
+    
+    // Calculate crop position (0-1)
+    let cropX = x / containerWidth;
+    cropX = Math.max(0, Math.min(1, cropX)); // Clamp between 0 and 1
+    
+    updateCropPosition(previewSegmentId, cropX);
   };
 
   const handleGenerateMetadata = async () => {
@@ -345,7 +393,13 @@ export default function VideoEditor({ videoId, onProcess, onBack }: VideoEditorP
         {/* Video Player */}
         <div className="lg:col-span-2">
           <div className="bg-gray-800 rounded-xl overflow-hidden shadow-2xl">
-            <div className="aspect-video bg-black">
+            <div 
+              ref={playerContainerRef}
+              className="aspect-video bg-black relative"
+              onMouseMove={handleCropDrag}
+              onMouseUp={() => setIsDraggingCrop(false)}
+              onMouseLeave={() => setIsDraggingCrop(false)}
+            >
               <ReactPlayerComponent
                 ref={playerRef}
                 url={`https://www.youtube.com/watch?v=${video.youtubeId}`}
@@ -363,6 +417,65 @@ export default function VideoEditor({ videoId, onProcess, onBack }: VideoEditorP
                 onProgress={({ playedSeconds }) => setCurrentTime(playedSeconds)}
                 progressInterval={100}
               />
+
+              {/* Vertical Crop Preview Overlay */}
+              {previewSegmentId && (() => {
+                const segment = segments.find(s => s.id === previewSegmentId);
+                if (!segment) return null;
+                
+                const cropX = segment.cropX ?? 0.5;
+                
+                // Calculate the vertical preview dimensions
+                // Video is 16:9, short is 9:16
+                const containerAspect = 16 / 9;
+                const shortAspect = 9 / 16;
+                
+                // The preview width is 9/16 of the height
+                const previewWidthPercent = (shortAspect / containerAspect) * 100;
+                
+                // Position based on cropX (0 = left, 0.5 = center, 1 = right)
+                const leftPercent = cropX * (100 - previewWidthPercent);
+                
+                return (
+                  <div className="absolute inset-0 pointer-events-none">
+                    {/* Darkened areas outside crop */}
+                    <div 
+                      className="absolute top-0 bottom-0 left-0 bg-black/60"
+                      style={{ width: `${leftPercent}%` }}
+                    />
+                    <div 
+                      className="absolute top-0 bottom-0 right-0 bg-black/60"
+                      style={{ width: `${100 - leftPercent - previewWidthPercent}%` }}
+                    />
+                    
+                    {/* Crop area outline */}
+                    <div 
+                      className="absolute top-0 bottom-0 border-4 border-purple-500"
+                      style={{ 
+                        left: `${leftPercent}%`,
+                        width: `${previewWidthPercent}%`,
+                      }}
+                    >
+                      {/* Drag handle */}
+                      <div 
+                        className="absolute inset-0 cursor-ew-resize pointer-events-auto"
+                        onMouseDown={() => setIsDraggingCrop(true)}
+                      >
+                        <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-purple-500 text-white px-3 py-2 rounded-lg text-sm font-semibold shadow-lg">
+                          ↔ Glissez pour ajuster
+                        </div>
+                      </div>
+                      
+                      {/* Top label */}
+                      <div className="absolute -top-8 left-0 right-0 text-center">
+                        <span className="bg-purple-500 text-white px-3 py-1 rounded-t text-xs font-semibold">
+                          Aperçu Vertical (9:16)
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
             </div>
 
             {/* Timeline */}
@@ -595,17 +708,32 @@ export default function VideoEditor({ videoId, onProcess, onBack }: VideoEditorP
                       )}
 
                       {/* Action Buttons */}
-                      <div className="mt-3 flex gap-2">
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            console.log('🔘 [BUTTON] "Voir le segment" clicked for segment at', segment.startTime, 's');
-                            seekToSegment(segment.startTime);
-                          }}
-                          className="flex-1 text-xs text-purple-400 hover:text-purple-300 transition-colors py-2 px-3 bg-purple-500/10 rounded hover:bg-purple-500/20"
-                        >
-                          ▶ Voir le segment
-                        </button>
+                      <div className="mt-3 space-y-2">
+                        <div className="flex gap-2">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              console.log('🔘 [BUTTON] "Voir le segment" clicked for segment at', segment.startTime, 's');
+                              seekToSegment(segment.startTime);
+                            }}
+                            className="flex-1 text-xs text-purple-400 hover:text-purple-300 transition-colors py-2 px-3 bg-purple-500/10 rounded hover:bg-purple-500/20"
+                          >
+                            ▶ Voir le segment
+                          </button>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              togglePreview(previewSegmentId === segment.id ? null : segment.id);
+                            }}
+                            className={`flex-1 text-xs transition-colors py-2 px-3 rounded font-semibold ${
+                              previewSegmentId === segment.id
+                                ? 'bg-purple-600 text-white hover:bg-purple-700'
+                                : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                            }`}
+                          >
+                            {previewSegmentId === segment.id ? '✓ Cadrage actif' : '📐 Cadrage vertical'}
+                          </button>
+                        </div>
                         {hasMetadata && (
                           <button
                             onClick={(e) => {
@@ -613,7 +741,7 @@ export default function VideoEditor({ videoId, onProcess, onBack }: VideoEditorP
                               downloadSegment(segment);
                             }}
                             disabled={isProcessing}
-                            className={`flex-1 text-xs py-2 px-3 rounded font-semibold transition-colors ${
+                            className={`w-full text-xs py-2 px-3 rounded font-semibold transition-colors ${
                               isProcessing
                                 ? 'bg-yellow-600 cursor-wait'
                                 : segment.processed
