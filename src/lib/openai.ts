@@ -71,6 +71,71 @@ Exemples de bon format:
   }
 }
 
+/**
+ * Analyze transcript to generate a description and quality score
+ */
+export async function analyzeTranscriptContent(
+  transcript: string,
+  videoTitle: string
+): Promise<{ analysis: string; qualityScore: number }> {
+  try {
+    if (!transcript || transcript.trim().length === 0) {
+      return {
+        analysis: 'Pas de transcription disponible',
+        qualityScore: 0.5,
+      };
+    }
+
+    const prompt = `Analyse cette transcription d'un segment vidéo et génère:
+1. Une description de ce qui se passe (2-3 phrases maximum)
+2. Un score de qualité pour un Short viral (0-1)
+
+VIDÉO: "${videoTitle}"
+TRANSCRIPTION: "${transcript.substring(0, 500)}"
+
+Évalue la qualité selon:
+- Clarté du message (compréhensible sans contexte?)
+- Hook/accroche (début captivant?)
+- Valeur émotionnelle (drôle, surprenant, émouvant?)
+- Potentiel viral (partage, engagement?)
+- Structure narrative (début, milieu, fin?)
+
+Retourne JSON:
+{
+  "analysis": "Description de ce qui se passe dans ce segment (en français)",
+  "qualityScore": 0.85
+}`;
+
+    const response = await openai.chat.completions.create({
+      model: 'gpt-4o-mini',
+      messages: [
+        {
+          role: 'system',
+          content: 'Tu es un expert en analyse de contenu viral pour YouTube Shorts et TikTok.',
+        },
+        {
+          role: 'user',
+          content: prompt,
+        },
+      ],
+      response_format: { type: 'json_object' },
+      temperature: 0.5,
+    });
+
+    const result = JSON.parse(response.choices[0].message.content || '{}');
+    return {
+      analysis: result.analysis || 'Contenu analysé',
+      qualityScore: Math.min(1, Math.max(0, result.qualityScore || 0.7)),
+    };
+  } catch (error) {
+    console.error('Error analyzing transcript:', error);
+    return {
+      analysis: 'Analyse non disponible',
+      qualityScore: 0.6,
+    };
+  }
+}
+
 export async function analyzeVideoForBestMoments(
   videoId: string,
   duration: number

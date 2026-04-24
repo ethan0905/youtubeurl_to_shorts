@@ -53,6 +53,34 @@ export async function extractVideoSegment(
   });
 }
 
+/**
+ * Extract a thumbnail image from a video at a specific timestamp
+ */
+export async function extractThumbnail(
+  videoPath: string,
+  timestamp: number,
+  outputPath: string
+): Promise<string> {
+  return new Promise((resolve, reject) => {
+    ffmpeg(videoPath)
+      .seekInput(timestamp)
+      .frames(1)
+      .output(outputPath)
+      .on('start', (commandLine: string) => {
+        console.log('FFmpeg thumbnail command:', commandLine);
+      })
+      .on('end', () => {
+        console.log(`✅ Thumbnail extracted: ${outputPath}`);
+        resolve(outputPath);
+      })
+      .on('error', (err: Error) => {
+        console.error('❌ Error extracting thumbnail:', err.message);
+        reject(err);
+      })
+      .run();
+  });
+}
+
 export async function downloadYouTubeVideo(
   videoId: string,
   outputDir: string

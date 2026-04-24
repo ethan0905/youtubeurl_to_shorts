@@ -20,6 +20,8 @@ interface Segment {
   title?: string | null;
   description?: string | null;
   transcript?: string | null;
+  transcriptAnalysis?: string | null;
+  thumbnailUrl?: string | null;
   processed?: boolean;
   outputPath?: string | null;
 }
@@ -389,12 +391,34 @@ export default function VideoEditor({ videoId, onProcess, onBack }: VideoEditorP
                   return (
                     <div
                       key={segment.id}
-                      className={`border-2 rounded-lg p-3 transition-all ${
+                      className={`border-2 rounded-lg overflow-hidden transition-all ${
                         segment.selected
                           ? "border-green-500 bg-green-500/10"
                           : "border-gray-600 bg-gray-750 hover:border-gray-500"
                       }`}
                     >
+                      {/* Thumbnail */}
+                      {segment.thumbnailUrl && (
+                        <div className="relative w-full h-32 bg-gray-900">
+                          <img
+                            src={segment.thumbnailUrl}
+                            alt={`Segment ${index + 1}`}
+                            className="w-full h-full object-cover"
+                          />
+                          <div className="absolute top-2 right-2 bg-black/70 px-2 py-1 rounded text-xs text-white">
+                            {Math.round(segment.endTime - segment.startTime)}s
+                          </div>
+                          {segment.selected && (
+                            <div className="absolute top-2 left-2">
+                              <svg className="w-6 h-6 text-green-400 drop-shadow-lg" fill="currentColor" viewBox="0 0 20 20">
+                                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                              </svg>
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      <div className="p-3">
                       <div 
                         className="cursor-pointer"
                         onClick={() => toggleSegment(segment.id)}
@@ -407,7 +431,7 @@ export default function VideoEditor({ videoId, onProcess, onBack }: VideoEditorP
                             <span className="text-xs bg-gray-700 px-2 py-1 rounded mr-2">
                               Score: {(segment.score * 100).toFixed(0)}%
                             </span>
-                            {segment.selected && (
+                            {!segment.thumbnailUrl && segment.selected && (
                               <svg className="w-5 h-5 text-green-400" fill="currentColor" viewBox="0 0 20 20">
                                 <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
                               </svg>
@@ -421,6 +445,14 @@ export default function VideoEditor({ videoId, onProcess, onBack }: VideoEditorP
                           </span>
                         </div>
                       </div>
+
+                      {/* Transcript Analysis */}
+                      {segment.transcriptAnalysis && (
+                        <div className="mt-3 pt-3 border-t border-gray-700">
+                          <p className="text-xs text-blue-400 font-semibold mb-1">🎯 Analyse du contenu:</p>
+                          <p className="text-xs text-gray-300 bg-blue-900/20 p-2 rounded">{segment.transcriptAnalysis}</p>
+                        </div>
+                      )}
 
                       {/* Metadata Display */}
                       {hasMetadata && (
@@ -469,6 +501,7 @@ export default function VideoEditor({ videoId, onProcess, onBack }: VideoEditorP
                           </button>
                         )}
                       </div>
+                      </div>
                     </div>
                   );
                 })
@@ -476,8 +509,7 @@ export default function VideoEditor({ videoId, onProcess, onBack }: VideoEditorP
             </div>
 
             {/* Action Buttons */}
-            <div className="mt-6 space-y-3">
-              {segments.length > 0 && !segments.some(s => s.title) && (
+            <div className="mt-6 space-y-3">\n              {segments.length > 0 && !segments.some(s => s.title) && (
                 <>
                   <button
                     onClick={handleGenerateMetadata}

@@ -41,6 +41,7 @@ model Segment {
   
   // Transcript from YouTube
   transcript  String?
+  transcriptAnalysis String? // AI analysis of transcript content for quality grading
   
   // Output
   outputPath  String?
