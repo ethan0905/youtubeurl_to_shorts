@@ -26,7 +26,7 @@ export async function GET(
     }
 
     // Create metadata for all segments
-    const allSegments = video.segments.map((segment, index) => ({
+    const allSegments = video.segments.map((segment: any, index: number) => ({
       segment_number: index + 1,
       segment_id: segment.id,
       title: segment.title,

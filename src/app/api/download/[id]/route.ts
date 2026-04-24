@@ -22,8 +22,26 @@ export async function GET(
       );
     }
 
-    // For now, return metadata as JSON since actual video files aren't generated yet
-    // In production, you would return the actual video file here
+    // Check if video file exists
+    if (segment.outputPath) {
+      const filePath = path.join(process.cwd(), 'public', segment.outputPath);
+      
+      if (fs.existsSync(filePath)) {
+        // Stream the actual video file
+        const stat = fs.statSync(filePath);
+        const fileStream = fs.createReadStream(filePath);
+        
+        return new NextResponse(fileStream as any, {
+          headers: {
+            'Content-Type': 'video/mp4',
+            'Content-Length': stat.size.toString(),
+            'Content-Disposition': `attachment; filename="short_${segment.id}.mp4"`,
+          },
+        });
+      }
+    }
+
+    // Fallback: Return metadata if video file doesn't exist
     const metadata = {
       segment_id: segment.id,
       video_id: segment.videoId,
@@ -34,7 +52,7 @@ export async function GET(
       duration: segment.endTime - segment.startTime,
       youtube_url: segment.video.youtubeUrl,
       youtube_id: segment.video.youtubeId,
-      note: 'Le téléchargement de vidéos nécessite FFmpeg et le traitement vidéo backend. Actuellement, seules les métadonnées sont disponibles.',
+      note: 'Video file not yet generated. Make sure FFmpeg is installed and the video has been processed.',
     };
 
     return NextResponse.json(metadata, {

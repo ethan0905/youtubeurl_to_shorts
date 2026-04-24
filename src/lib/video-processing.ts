@@ -1,6 +1,10 @@
 import ffmpeg from 'fluent-ffmpeg';
 import path from 'path';
 import fs from 'fs';
+import { exec } from 'child_process';
+import { promisify } from 'util';
+
+const execAsync = promisify(exec);
 
 export interface VideoProcessingOptions {
   inputPath: string;
@@ -31,19 +35,18 @@ export async function extractVideoSegment(
         '-movflags +faststart',
       ])
       .output(outputPath)
-      .on('start', (commandLine) => {
+      .on('start', (commandLine: string) => {
         console.log('FFmpeg command:', commandLine);
       })
-      .on('progress', (progress) => {
-        console.log(`Processing: ${progress.percent}% done`);
+      .on('progress', (progress: any) => {
+        console.log(`Processing: ${progress.percent?.toFixed(1) || 0}% done`);
       })
       .on('end', () => {
         console.log('Processing finished successfully');
         resolve(outputPath);
       })
-      .on('error', (err, stdout, stderr) => {
+      .on('error', (err: Error) => {
         console.error('Error processing video:', err.message);
-        console.error('FFmpeg stderr:', stderr);
         reject(err);
       })
       .run();
@@ -54,19 +57,60 @@ export async function downloadYouTubeVideo(
   videoId: string,
   outputDir: string
 ): Promise<string> {
-  // This would use ytdl-core or yt-dlp
-  // Placeholder implementation
+  ensureDirectoryExists(outputDir);
   const outputPath = path.join(outputDir, `${videoId}.mp4`);
   
-  return new Promise((resolve, reject) => {
-    // In a real implementation, you would:
-    // 1. Use ytdl-core or spawn yt-dlp process
-    // 2. Download the video
-    // 3. Return the path
+  // Check if file exists and is valid
+  if (fs.existsSync(outputPath)) {
+    const stats = fs.statSync(outputPath);
+    // If file is larger than 1KB, consider it valid (basic check)
+    if (stats.size > 1024) {
+      console.log(`✅ Video already downloaded: ${outputPath}`);
+      return outputPath;
+    } else {
+      console.log(`⚠️  Removing corrupted file: ${outputPath}`);
+      fs.unlinkSync(outputPath);
+    }
+  }
+
+  const url = `https://www.youtube.com/watch?v=${videoId}`;
+  console.log(`📥 Downloading YouTube video: ${videoId}`);
+
+  try {
+    // Use yt-dlp with best quality mp4 format
+    const command = `yt-dlp -f "bv*+ba/b" --merge-output-format mp4 -o "${outputPath}" "${url}"`;
     
-    // For now, this is a placeholder
-    resolve(outputPath);
-  });
+    const { stdout, stderr } = await execAsync(command, {
+      maxBuffer: 1024 * 1024 * 10, // 10MB buffer for output
+    });
+
+    if (stdout) console.log(stdout);
+    if (stderr) console.warn(stderr);
+
+    // Verify file was created and has content
+    if (!fs.existsSync(outputPath)) {
+      throw new Error('Download completed but file not found');
+    }
+
+    const stats = fs.statSync(outputPath);
+    if (stats.size === 0) {
+      fs.unlinkSync(outputPath);
+      throw new Error('Downloaded file is empty');
+    }
+
+    console.log(`✅ Download complete: ${outputPath} (${(stats.size / 1024 / 1024).toFixed(2)} MB)`);
+    return outputPath;
+
+  } catch (error: any) {
+    console.error('❌ Download failed:', error.message);
+    
+    // Clean up partial download
+    if (fs.existsSync(outputPath)) {
+      fs.unlinkSync(outputPath);
+    }
+    
+    throw new Error(`Failed to download video: ${error.message}`);
+  }
 }
 
 export function ensureDirectoryExists(dirPath: string): void {

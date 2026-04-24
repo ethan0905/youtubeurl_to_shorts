@@ -3,7 +3,13 @@
 import { useEffect, useState } from "react";
 import axios from "axios";
 import VideoTimeline from "./VideoTimeline";
-import ReactPlayer from "react-player";
+import dynamic from "next/dynamic";
+
+// Import ReactPlayer dynamically to avoid SSR issues
+const ReactPlayer = dynamic(() => import("react-player/youtube"), {
+  ssr: false,
+  loading: () => <div className="flex items-center justify-center h-full bg-black">Loading player...</div>
+});
 
 interface Segment {
   id: string;

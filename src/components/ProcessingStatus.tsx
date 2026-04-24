@@ -7,129 +7,96 @@ interface ProcessingStatusProps {
   videoId: string;
 }
 
-interface ProcessedSegment {
+interface SegmentWithMetadata {
   id: string;
-  title: string;
-  description: string;
-  outputPath: string;
+  title: string | null;
+  description: string | null;
   startTime: number;
   endTime: number;
+  processed: boolean;
+  outputPath: string | null;
 }
 
 export default function ProcessingStatus({ videoId }: ProcessingStatusProps) {
-  const [status, setStatus] = useState("Initialisation...");
-  const [progress, setProgress] = useState(0);
-  const [processedSegments, setProcessedSegments] = useState<ProcessedSegment[]>([]);
-  const [isComplete, setIsComplete] = useState(false);
+  const [status, setStatus] = useState("Génération des métadonnées...");
+  const [segments, setSegments] = useState<SegmentWithMetadata[]>([]);
+  const [processingSegmentId, setProcessingSegmentId] = useState<string | null>(null);
   const [error, setError] = useState("");
+  const [isGeneratingMetadata, setIsGeneratingMetadata] = useState(true);
 
   useEffect(() => {
-    startProcessing();
+    generateMetadata();
   }, [videoId]);
 
-  const startProcessing = async () => {
+  const generateMetadata = async () => {
     try {
-      setStatus("Démarrage du traitement...");
-      setProgress(10);
+      setStatus("🤖 Génération des titres et descriptions avec l'IA...");
+      setIsGeneratingMetadata(true);
 
-      // Start the processing
-      const response = await axios.post(`/api/video/${videoId}/process`);
+      // Generate AI metadata for all segments (no video download)
+      const response = await axios.post(`/api/video/${videoId}/generate-metadata`);
       
       if (response.data.success) {
-        pollStatus();
+        setSegments(response.data.segments);
+        setStatus("✅ Métadonnées générées ! Cliquez sur Télécharger pour traiter un short.");
+        setIsGeneratingMetadata(false);
       }
     } catch (err: any) {
-      setError(err.response?.data?.error || "Erreur lors du traitement");
+      setError(err.response?.data?.error || "Erreur lors de la génération des métadonnées");
+      setIsGeneratingMetadata(false);
     }
   };
 
-  const pollStatus = async () => {
-    const interval = setInterval(async () => {
-      try {
-        const response = await axios.get(`/api/video/${videoId}/status`);
-        const { status: currentStatus, progress: currentProgress, segments, completed } = response.data;
+  const downloadSegment = async (segment: SegmentWithMetadata) => {
+    try {
+      setProcessingSegmentId(segment.id);
+      setStatus(`📥 Téléchargement et traitement du short...`);
 
-        setStatus(currentStatus);
-        setProgress(currentProgress);
+      // Process this specific segment (download video + extract)
+      const response = await axios.post(`/api/segment/${segment.id}/process`);
+      
+      if (response.data.success) {
+        // Update the segment in the list
+        setSegments(prev => 
+          prev.map(s => 
+            s.id === segment.id 
+              ? { ...s, processed: true, outputPath: response.data.segment.outputPath }
+              : s
+          )
+        );
 
-        if (segments) {
-          setProcessedSegments(segments);
-        }
+        // Download the video file
+        const link = document.createElement('a');
+        link.href = response.data.segment.outputPath;
+        link.download = `short_${segment.title?.replace(/[^a-z0-9]/gi, '_') || segment.id}.mp4`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
 
-        if (completed) {
-          setIsComplete(true);
-          clearInterval(interval);
-        }
-      } catch (err) {
-        console.error("Error polling status:", err);
+        setStatus("✅ Short téléchargé avec succès !");
       }
-    }, 2000);
-
-    return () => clearInterval(interval);
-  };
-
-  const downloadSegment = (segment: ProcessedSegment) => {
-    // Télécharger les métadonnées du segment
-    fetch(`/api/download/${segment.id}`)
-      .then(res => res.json())
-      .then(data => {
-        const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-        const url = window.URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `segment_${segment.id}_metadata.json`;
-        document.body.appendChild(a);
-        a.click();
-        window.URL.revokeObjectURL(url);
-        document.body.removeChild(a);
-      })
-      .catch(err => console.error('Error downloading segment:', err));
-  };
-
-  const downloadAll = () => {
-    // Télécharger toutes les métadonnées
-    fetch(`/api/download/all/${videoId}`)
-      .then(res => res.json())
-      .then(data => {
-        const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-        const url = window.URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `all_segments_${videoId}_metadata.json`;
-        document.body.appendChild(a);
-        a.click();
-        window.URL.revokeObjectURL(url);
-        document.body.removeChild(a);
-      })
-      .catch(err => console.error('Error downloading all segments:', err));
+    } catch (err: any) {
+      alert(err.response?.data?.error || "Erreur lors du téléchargement");
+    } finally {
+      setProcessingSegmentId(null);
+    }
   };
 
   return (
     <div className="max-w-4xl mx-auto">
       <div className="bg-gray-800 rounded-2xl shadow-2xl p-8">
         <h2 className="text-3xl font-bold mb-6 text-center">
-          {isComplete ? "✅ Traitement terminé !" : "⚙️ Traitement en cours"}
+          {isGeneratingMetadata ? "🤖 Génération des métadonnées" : "✨ Prévisualisation des shorts"}
         </h2>
 
-        {!isComplete && !error && (
-          <>
-            <div className="mb-6">
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-sm text-gray-400">{status}</span>
-                <span className="text-sm font-semibold text-purple-400">{progress}%</span>
-              </div>
-              <div className="w-full bg-gray-700 rounded-full h-3 overflow-hidden">
-                <div
-                  className="bg-gradient-to-r from-purple-600 to-pink-600 h-full transition-all duration-500 ease-out"
-                  style={{ width: `${progress}%` }}
-                ></div>
-              </div>
-            </div>
+        <div className="mb-6 text-center">
+          <p className="text-gray-400">{status}</p>
+        </div>
 
-            <div className="flex items-center justify-center py-8">
-              <div className="animate-spin rounded-full h-16 w-16 border-t-2 border-b-2 border-purple-500"></div>
-            </div>
-          </>
+        {isGeneratingMetadata && !error && (
+          <div className="flex items-center justify-center py-8">
+            <div className="animate-spin rounded-full h-16 w-16 border-t-2 border-b-2 border-purple-500"></div>
+          </div>
         )}
 
         {error && (
@@ -139,72 +106,101 @@ export default function ProcessingStatus({ videoId }: ProcessingStatusProps) {
           </div>
         )}
 
-        {processedSegments.length > 0 && (
+        {!isGeneratingMetadata && segments.length > 0 && (
           <div className="mt-6">
-            <h3 className="text-xl font-bold mb-4">Shorts générés ({processedSegments.length})</h3>
-            
-            {!isComplete && (
-              <div className="mb-4 bg-blue-500/10 border border-blue-500 rounded-lg p-3 text-blue-300 text-sm">
-                ℹ️ Les métadonnées sont générées avec le contexte de la vidéo originale en français
-              </div>
-            )}
+            <div className="mb-4 bg-blue-500/10 border border-blue-500 rounded-lg p-4 text-blue-300 text-sm">
+              <p className="font-semibold mb-2">ℹ️ Comment ça marche :</p>
+              <ol className="list-decimal list-inside space-y-1 ml-2">
+                <li>Les titres et descriptions ont été générés par l'IA en français</li>
+                <li>Cliquez sur "Télécharger" pour traiter un short spécifique</li>
+                <li>Le téléchargement de la vidéo YouTube et le découpage FFmpeg démarreront</li>
+                <li>Le fichier MP4 sera téléchargé automatiquement</li>
+              </ol>
+            </div>
             
             <div className="space-y-4">
-              {processedSegments.map((segment, index) => (
-                <div
-                  key={segment.id}
-                  className="bg-gray-750 border border-gray-600 rounded-lg p-4 hover:border-purple-500 transition-colors"
-                >
-                  <div className="flex items-start justify-between">
-                    <div className="flex-1">
-                      <h4 className="font-semibold text-lg mb-1">
-                        {segment.title || `Short #${index + 1}`}
-                      </h4>
-                      <p className="text-sm text-gray-400 mb-2">
-                        {segment.description || "Aucune description"}
-                      </p>
-                      <div className="text-xs text-gray-500">
-                        Durée: {Math.round(segment.endTime - segment.startTime)}s
+              {segments.map((segment, index) => {
+                const duration = Math.round(segment.endTime - segment.startTime);
+                const isProcessing = processingSegmentId === segment.id;
+                const isProcessed = segment.processed;
+
+                return (
+                  <div
+                    key={segment.id}
+                    className={`bg-gray-750 border rounded-lg p-5 transition-all ${
+                      isProcessing 
+                        ? 'border-yellow-500 shadow-lg shadow-yellow-500/20' 
+                        : isProcessed
+                        ? 'border-green-500'
+                        : 'border-gray-600 hover:border-purple-500'
+                    }`}
+                  >
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2 mb-2">
+                          <span className="text-xs bg-purple-600 px-2 py-1 rounded">
+                            Short #{index + 1}
+                          </span>
+                          <span className="text-xs text-gray-400">
+                            {duration}s • {Math.floor(segment.startTime)}s - {Math.floor(segment.endTime)}s
+                          </span>
+                          {isProcessed && (
+                            <span className="text-xs bg-green-600 px-2 py-1 rounded">
+                              ✓ Téléchargé
+                            </span>
+                          )}
+                        </div>
+                        <h4 className="font-bold text-lg mb-2">
+                          {segment.title || `Short #${index + 1}`}
+                        </h4>
+                        <p className="text-sm text-gray-400">
+                          {segment.description || "Aucune description"}
+                        </p>
                       </div>
+                      <button
+                        onClick={() => downloadSegment(segment)}
+                        disabled={isProcessing}
+                        className={`flex-shrink-0 px-6 py-3 rounded-lg font-semibold transition-all flex items-center gap-2 ${
+                          isProcessing
+                            ? 'bg-yellow-600 cursor-wait'
+                            : isProcessed
+                            ? 'bg-green-600 hover:bg-green-700'
+                            : 'bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700'
+                        }`}
+                      >
+                        {isProcessing ? (
+                          <>
+                            <div className="animate-spin rounded-full h-5 w-5 border-t-2 border-b-2 border-white"></div>
+                            Traitement...
+                          </>
+                        ) : (
+                          <>
+                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                            </svg>
+                            {isProcessed ? 'Re-télécharger' : 'Télécharger'}
+                          </>
+                        )}
+                      </button>
                     </div>
-                    <button
-                      onClick={() => downloadSegment(segment)}
-                      className="ml-4 bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg transition-colors flex items-center"
-                    >
-                      <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                      </svg>
-                      Métadonnées
-                    </button>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
-
-            {isComplete && (
-              <button
-                onClick={downloadAll}
-                className="w-full mt-6 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white font-semibold py-3 px-6 rounded-lg transition-all duration-200 flex items-center justify-center"
-              >
-                <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                </svg>
-                Télécharger toutes les métadonnées (JSON)
-              </button>
-            )}
           </div>
         )}
 
-        {isComplete && (
-          <div className="mt-6 text-center">
-            <button
-              onClick={() => window.location.reload()}
-              className="text-purple-400 hover:text-purple-300 transition-colors"
-            >
-              ← Créer un nouveau projet
-            </button>
-          </div>
-        )}
+        <div className="mt-8 text-center">
+          <button
+            onClick={() => window.location.reload()}
+            className="text-purple-400 hover:text-purple-300 transition-colors flex items-center gap-2 mx-auto"
+          >
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+            </svg>
+            Créer un nouveau projet
+          </button>
+        </div>
       </div>
     </div>
   );

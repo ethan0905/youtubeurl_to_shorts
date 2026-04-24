@@ -40,3 +40,8 @@ next-env.d.ts
 # uploads
 /public/uploads
 /public/temp
+/public/outputs
+
+# Keep the directories but ignore content
+!public/uploads/.gitkeep
+!public/outputs/.gitkeep

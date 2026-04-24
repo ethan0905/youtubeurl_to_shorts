@@ -36,7 +36,7 @@ export async function GET(
         break;
       case 'processing':
         const totalSegments = video.segments.length;
-        const processedCount = video.segments.filter(s => s.processed).length;
+        const processedCount = video.segments.filter((s: any) => s.processed).length;
         progress = 30 + (processedCount / totalSegments) * 60;
         status = `Génération des shorts (${processedCount}/${totalSegments})...`;
         break;
