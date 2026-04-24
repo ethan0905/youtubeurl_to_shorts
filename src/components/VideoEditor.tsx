@@ -45,6 +45,9 @@ export default function VideoEditor({ videoId, onProcess, onBack }: VideoEditorP
   const [playing, setPlaying] = useState(false);
   const [playerReady, setPlayerReady] = useState(false);
   const [showTranscripts, setShowTranscripts] = useState(true);
+  const [editingSegmentId, setEditingSegmentId] = useState<string | null>(null);
+  const [editStartTime, setEditStartTime] = useState<string>("");
+  const [editEndTime, setEditEndTime] = useState<string>("");
 
   useEffect(() => {
     loadVideo();
@@ -95,6 +98,73 @@ export default function VideoEditor({ videoId, onProcess, onBack }: VideoEditorP
     } catch (error) {
       console.error("Error toggling segment:", error);
     }
+  };
+
+  const startEditingTime = (segment: Segment) => {
+    setEditingSegmentId(segment.id);
+    setEditStartTime(formatTimeInput(segment.startTime));
+    setEditEndTime(formatTimeInput(segment.endTime));
+  };
+
+  const cancelEditingTime = () => {
+    setEditingSegmentId(null);
+    setEditStartTime("");
+    setEditEndTime("");
+  };
+
+  const saveSegmentTimes = async (segmentId: string) => {
+    try {
+      const startTime = parseTimeInput(editStartTime);
+      const endTime = parseTimeInput(editEndTime);
+
+      if (isNaN(startTime) || isNaN(endTime)) {
+        alert("Format invalide. Utilisez MM:SS (ex: 1:30 pour 1min30s)");
+        return;
+      }
+
+      if (endTime <= startTime) {
+        alert("Le temps de fin doit être après le temps de début");
+        return;
+      }
+
+      const response = await axios.patch(`/api/segment/${segmentId}/update-times`, {
+        startTime,
+        endTime,
+      });
+
+      // Update local state
+      setSegments(prev =>
+        prev.map(seg =>
+          seg.id === segmentId
+            ? { ...seg, startTime, endTime, processed: false, outputPath: null }
+            : seg
+        )
+      );
+
+      setEditingSegmentId(null);
+      setEditStartTime("");
+      setEditEndTime("");
+
+      console.log(`✅ Segment times updated: ${startTime}s - ${endTime}s`);
+    } catch (error: any) {
+      alert(error.response?.data?.error || "Erreur lors de la mise à jour des temps");
+      console.error("Error updating segment times:", error);
+    }
+  };
+
+  const formatTimeInput = (seconds: number): string => {
+    const mins = Math.floor(seconds / 60);
+    const secs = Math.floor(seconds % 60);
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
+  };
+
+  const parseTimeInput = (timeStr: string): number => {
+    const parts = timeStr.split(':');
+    if (parts.length !== 2) return NaN;
+    const mins = parseInt(parts[0], 10);
+    const secs = parseInt(parts[1], 10);
+    if (isNaN(mins) || isNaN(secs)) return NaN;
+    return mins * 60 + secs;
   };
 
   const handleGenerateMetadata = async () => {
@@ -438,12 +508,66 @@ export default function VideoEditor({ videoId, onProcess, onBack }: VideoEditorP
                             )}
                           </div>
                         </div>
-                        <div className="text-sm text-gray-300">
-                          {formatTime(segment.startTime)} - {formatTime(segment.endTime)}
-                          <span className="text-gray-500 ml-2">
-                            ({Math.round(segment.endTime - segment.startTime)}s)
-                          </span>
-                        </div>
+                        
+                        {/* Editable Time Codes */}
+                        {editingSegmentId === segment.id ? (
+                          <div className="space-y-2" onClick={(e) => e.stopPropagation()}>
+                            <div className="flex items-center gap-2">
+                              <div className="flex-1">
+                                <label className="text-xs text-gray-400 block mb-1">Début</label>
+                                <input
+                                  type="text"
+                                  value={editStartTime}
+                                  onChange={(e) => setEditStartTime(e.target.value)}
+                                  placeholder="1:00"
+                                  className="w-full bg-gray-700 text-white text-sm px-2 py-1 rounded focus:outline-none focus:ring-2 focus:ring-purple-500"
+                                />
+                              </div>
+                              <div className="flex-1">
+                                <label className="text-xs text-gray-400 block mb-1">Fin</label>
+                                <input
+                                  type="text"
+                                  value={editEndTime}
+                                  onChange={(e) => setEditEndTime(e.target.value)}
+                                  placeholder="1:40"
+                                  className="w-full bg-gray-700 text-white text-sm px-2 py-1 rounded focus:outline-none focus:ring-2 focus:ring-purple-500"
+                                />
+                              </div>
+                            </div>
+                            <div className="flex gap-2">
+                              <button
+                                onClick={() => saveSegmentTimes(segment.id)}
+                                className="flex-1 text-xs bg-green-600 hover:bg-green-700 text-white px-3 py-1 rounded transition-colors"
+                              >
+                                ✓ Enregistrer
+                              </button>
+                              <button
+                                onClick={cancelEditingTime}
+                                className="flex-1 text-xs bg-gray-600 hover:bg-gray-700 text-white px-3 py-1 rounded transition-colors"
+                              >
+                                ✕ Annuler
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="flex items-center justify-between">
+                            <div className="text-sm text-gray-300">
+                              {formatTime(segment.startTime)} - {formatTime(segment.endTime)}
+                              <span className="text-gray-500 ml-2">
+                                ({Math.round(segment.endTime - segment.startTime)}s)
+                              </span>
+                            </div>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                startEditingTime(segment);
+                              }}
+                              className="text-xs text-blue-400 hover:text-blue-300 px-2 py-1 rounded hover:bg-blue-500/10 transition-colors"
+                            >
+                              ✏️ Modifier
+                            </button>
+                          </div>
+                        )}
                       </div>
 
                       {/* Transcript Analysis */}
