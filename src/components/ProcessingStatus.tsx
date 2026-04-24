@@ -69,11 +69,39 @@ export default function ProcessingStatus({ videoId }: ProcessingStatusProps) {
   };
 
   const downloadSegment = (segment: ProcessedSegment) => {
-    window.open(`/api/download/${segment.id}`, '_blank');
+    // Télécharger les métadonnées du segment
+    fetch(`/api/download/${segment.id}`)
+      .then(res => res.json())
+      .then(data => {
+        const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `segment_${segment.id}_metadata.json`;
+        document.body.appendChild(a);
+        a.click();
+        window.URL.revokeObjectURL(url);
+        document.body.removeChild(a);
+      })
+      .catch(err => console.error('Error downloading segment:', err));
   };
 
   const downloadAll = () => {
-    window.open(`/api/download/all/${videoId}`, '_blank');
+    // Télécharger toutes les métadonnées
+    fetch(`/api/download/all/${videoId}`)
+      .then(res => res.json())
+      .then(data => {
+        const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `all_segments_${videoId}_metadata.json`;
+        document.body.appendChild(a);
+        a.click();
+        window.URL.revokeObjectURL(url);
+        document.body.removeChild(a);
+      })
+      .catch(err => console.error('Error downloading all segments:', err));
   };
 
   return (
@@ -114,6 +142,13 @@ export default function ProcessingStatus({ videoId }: ProcessingStatusProps) {
         {processedSegments.length > 0 && (
           <div className="mt-6">
             <h3 className="text-xl font-bold mb-4">Shorts générés ({processedSegments.length})</h3>
+            
+            {!isComplete && (
+              <div className="mb-4 bg-blue-500/10 border border-blue-500 rounded-lg p-3 text-blue-300 text-sm">
+                ℹ️ Les métadonnées sont générées avec le contexte de la vidéo originale en français
+              </div>
+            )}
+            
             <div className="space-y-4">
               {processedSegments.map((segment, index) => (
                 <div
@@ -139,7 +174,7 @@ export default function ProcessingStatus({ videoId }: ProcessingStatusProps) {
                       <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
                       </svg>
-                      Télécharger
+                      Métadonnées
                     </button>
                   </div>
                 </div>
@@ -154,7 +189,7 @@ export default function ProcessingStatus({ videoId }: ProcessingStatusProps) {
                 <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
                 </svg>
-                Télécharger tous les shorts (ZIP)
+                Télécharger toutes les métadonnées (JSON)
               </button>
             )}
           </div>

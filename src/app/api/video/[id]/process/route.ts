@@ -33,12 +33,16 @@ export async function POST(
     // This is a simplified version - in production, use a queue system
     const processedSegments = [];
 
-    for (const segment of video.segments) {
-      // Generate metadata using OpenAI
+    for (let i = 0; i < video.segments.length; i++) {
+      const segment = video.segments[i];
+      
+      // Generate metadata using OpenAI with video context
       const metadata = await analyzeVideoSegment(
+        video.title || 'Vidéo YouTube',
         video.youtubeUrl,
         segment.startTime,
-        segment.endTime
+        segment.endTime,
+        i
       );
 
       // Update segment with metadata

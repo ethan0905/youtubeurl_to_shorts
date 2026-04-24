@@ -9,30 +9,43 @@ export const openai = new OpenAI({
 });
 
 export async function analyzeVideoSegment(
+  videoTitle: string,
   videoUrl: string,
   startTime: number,
-  endTime: number
+  endTime: number,
+  segmentIndex: number
 ): Promise<{ title: string; description: string }> {
   try {
-    // Note: OpenAI's vision API doesn't directly support video URLs yet
-    // This is a placeholder for the actual implementation
-    // You would need to extract frames from the video first
+    const duration = Math.round(endTime - startTime);
+    const startMinutes = Math.floor(startTime / 60);
+    const startSeconds = Math.floor(startTime % 60);
     
-    const prompt = `Create a compelling title and description for a YouTube Short extracted from a video.
-The segment is from ${startTime}s to ${endTime}s (${Math.round(endTime - startTime)}s duration).
+    const prompt = `Crée un titre et une description captivants pour un Short YouTube extrait de cette vidéo:
 
-Return a JSON object with:
-- title: A catchy, engaging title (max 100 characters)
-- description: A brief description (max 200 characters)
+VIDÉO ORIGINALE: "${videoTitle}"
+SEGMENT: Du moment ${startMinutes}:${startSeconds.toString().padStart(2, '0')} (durée: ${duration}s)
 
-Make it engaging and optimized for social media.`;
+Crée un titre et une description qui:
+1. Sont en FRANÇAIS
+2. Sont cohérents avec le sujet de la vidéo originale
+3. Mettent en avant ce moment spécifique (${segmentIndex === 0 ? 'début' : segmentIndex === 1 ? 'milieu' : 'fin/climax'} de la vidéo)
+4. Sont optimisés pour les shorts (accrocheurs, incitent au clic)
+5. Respectent l'essence et le ton de la vidéo originale
+
+Retourne un objet JSON avec:
+- title: Titre accrocheur (max 80 caractères, en français)
+- description: Description engageante (max 150 caractères, en français)
+
+Exemples de bon format:
+- Si vidéo = "Recette gâteau chocolat", segment du milieu → title: "La technique secrète pour un gâteau parfait 🍫"
+- Si vidéo = "Tutoriel guitare", segment de fin → title: "Le riff qui change tout 🎸"`;
 
     const response = await openai.chat.completions.create({
       model: 'gpt-4o-mini',
       messages: [
         {
           role: 'system',
-          content: 'You are an expert at creating viral social media content titles and descriptions.',
+          content: 'Tu es un expert en création de contenu viral pour les réseaux sociaux. Tu crées TOUJOURS du contenu en français, cohérent avec le sujet original.',
         },
         {
           role: 'user',
@@ -40,18 +53,19 @@ Make it engaging and optimized for social media.`;
         },
       ],
       response_format: { type: 'json_object' },
+      temperature: 0.7,
     });
 
     const result = JSON.parse(response.choices[0].message.content || '{}');
     return {
-      title: result.title || `Short ${startTime}-${endTime}`,
-      description: result.description || '',
+      title: result.title || `${videoTitle} - Extrait ${segmentIndex + 1}`,
+      description: result.description || `Extrait ${duration}s de "${videoTitle}"`,
     };
   } catch (error) {
     console.error('Error analyzing segment with OpenAI:', error);
     return {
-      title: `Short ${startTime}s-${endTime}s`,
-      description: 'Generated short video',
+      title: `${videoTitle} - Partie ${segmentIndex + 1}`,
+      description: `Extrait de ${Math.round(endTime - startTime)}s`,
     };
   }
 }
