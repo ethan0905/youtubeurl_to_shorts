@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { analyzeVideoForBestMoments } from '@/lib/openai';
+import { getSegmentTranscript } from '@/lib/youtube-transcript';
 
 export async function POST(
   request: NextRequest,
@@ -24,19 +25,32 @@ export async function POST(
       video.duration || 0
     );
 
-    // Create segments in database
+    // Create segments in database with transcripts
     const segments = await Promise.all(
-      moments.map((moment) =>
-        prisma.segment.create({
+      moments.map(async (moment) => {
+        // Fetch transcript for this segment
+        let transcript = null;
+        try {
+          transcript = await getSegmentTranscript(
+            video.youtubeId,
+            moment.startTime,
+            moment.endTime
+          );
+        } catch (error) {
+          console.log(`⚠️ Could not fetch transcript for segment ${moment.startTime}-${moment.endTime}`);
+        }
+
+        return prisma.segment.create({
           data: {
             videoId: video.id,
             startTime: moment.startTime,
             endTime: moment.endTime,
             score: moment.score,
             selected: true,
+            transcript: transcript,
           },
-        })
-      )
+        });
+      })
     );
 
     // Update video status

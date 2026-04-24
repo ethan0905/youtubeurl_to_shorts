@@ -39,6 +39,9 @@ model Segment {
   description String?
   thumbnailUrl String?
   
+  // Transcript from YouTube
+  transcript  String?
+  
   // Output
   outputPath  String?
   processed   Boolean  @default(false)

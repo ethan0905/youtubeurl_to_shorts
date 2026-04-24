@@ -19,6 +19,7 @@ interface Segment {
   selected: boolean;
   title?: string | null;
   description?: string | null;
+  transcript?: string | null;
   processed?: boolean;
   outputPath?: string | null;
 }
@@ -41,6 +42,7 @@ export default function VideoEditor({ videoId, onProcess, onBack }: VideoEditorP
   const [currentTime, setCurrentTime] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [playerReady, setPlayerReady] = useState(false);
+  const [showTranscripts, setShowTranscripts] = useState(true);
 
   useEffect(() => {
     loadVideo();
@@ -340,12 +342,33 @@ export default function VideoEditor({ videoId, onProcess, onBack }: VideoEditorP
         {/* Segments List */}
         <div className="lg:col-span-1">
           <div className="bg-gray-800 rounded-xl p-6 shadow-2xl">
-            <h3 className="text-xl font-bold mb-4 flex items-center">
-              <svg className="w-6 h-6 mr-2 text-purple-400" fill="currentColor" viewBox="0 0 20 20">
-                <path d="M2 6a2 2 0 012-2h6a2 2 0 012 2v8a2 2 0 01-2 2H4a2 2 0 01-2-2V6zM14.553 7.106A1 1 0 0014 8v4a1 1 0 00.553.894l2 1A1 1 0 0018 13V7a1 1 0 00-1.447-.894l-2 1z" />
-              </svg>
-              Segments détectés ({segments.filter(s => s.selected).length}/{segments.length})
-            </h3>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-xl font-bold flex items-center">
+                <svg className="w-6 h-6 mr-2 text-purple-400" fill="currentColor" viewBox="0 0 20 20">
+                  <path d="M2 6a2 2 0 012-2h6a2 2 0 012 2v8a2 2 0 01-2 2H4a2 2 0 01-2-2V6zM14.553 7.106A1 1 0 0014 8v4a1 1 0 00.553.894l2 1A1 1 0 0018 13V7a1 1 0 00-1.447-.894l-2 1z" />
+                </svg>
+                Segments ({segments.filter(s => s.selected).length}/{segments.length})
+              </h3>
+              
+              {/* Transcript Toggle */}
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-gray-400">Transcriptions</span>
+                <button
+                  onClick={() => setShowTranscripts(!showTranscripts)}
+                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-offset-2 focus:ring-offset-gray-800 ${
+                    showTranscripts ? 'bg-purple-600' : 'bg-gray-600'
+                  }`}
+                  role="switch"
+                  aria-checked={showTranscripts}
+                >
+                  <span
+                    className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                      showTranscripts ? 'translate-x-6' : 'translate-x-1'
+                    }`}
+                  />
+                </button>
+              </div>
+            </div>
 
             <div className="space-y-3 max-h-[600px] overflow-y-auto pr-2">
               {segments.length === 0 ? (
@@ -404,6 +427,14 @@ export default function VideoEditor({ videoId, onProcess, onBack }: VideoEditorP
                         <div className="mt-3 pt-3 border-t border-gray-700">
                           <p className="text-sm font-semibold text-white mb-1">{segment.title}</p>
                           <p className="text-xs text-gray-400">{segment.description}</p>
+                        </div>
+                      )}
+
+                      {/* Transcript Display */}
+                      {showTranscripts && segment.transcript && (
+                        <div className={`mt-3 pt-3 border-t border-gray-700 ${!hasMetadata ? 'mt-3 pt-3 border-t border-gray-700' : ''}`}>
+                          <p className="text-xs text-purple-400 font-semibold mb-1">📝 Transcription:</p>
+                          <p className="text-xs text-gray-300 italic bg-gray-900/50 p-2 rounded">{segment.transcript}</p>
                         </div>
                       )}
 
