@@ -16,6 +16,7 @@ export async function POST(
       include: {
         segments: {
           where: { selected: true },
+          orderBy: { startTime: 'asc' },
         },
       },
     });

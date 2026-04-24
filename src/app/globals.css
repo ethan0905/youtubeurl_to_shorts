@@ -52,7 +52,7 @@ body {
   height: 60px;
   background: #1f2937;
   border-radius: 8px;
-  overflow: hidden;
+  overflow: visible; /* Allow segments to be visible even if they extend */
 }
 
 .timeline-segment {
@@ -62,14 +62,19 @@ body {
   border: 2px solid #4f46e5;
   cursor: pointer;
   transition: all 0.2s;
+  opacity: 0.9;
+  min-width: 3px; /* Ensure very small segments are visible */
 }
 
 .timeline-segment:hover {
   background: linear-gradient(135deg, #818cf8 0%, #a78bfa 100%);
   transform: scaleY(1.1);
+  opacity: 1;
+  z-index: 10;
 }
 
 .timeline-segment.selected {
   border-color: #10b981;
   background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+  opacity: 1;
 }

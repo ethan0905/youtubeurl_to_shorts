@@ -52,7 +52,9 @@ export default function VideoEditor({ videoId, onProcess, onBack }: VideoEditorP
       setVideo(response.data);
       
       if (response.data.segments && response.data.segments.length > 0) {
-        setSegments(response.data.segments);
+        // Sort segments by start time
+        const sortedSegments = [...response.data.segments].sort((a, b) => a.startTime - b.startTime);
+        setSegments(sortedSegments);
       } else {
         // Start analysis if no segments yet
         analyzeVideo();
@@ -68,7 +70,9 @@ export default function VideoEditor({ videoId, onProcess, onBack }: VideoEditorP
     setAnalyzing(true);
     try {
       const response = await axios.post(`/api/video/${videoId}/analyze`);
-      setSegments(response.data.segments);
+      // Sort segments by start time
+      const sortedSegments = [...response.data.segments].sort((a, b) => a.startTime - b.startTime);
+      setSegments(sortedSegments);
     } catch (error) {
       console.error("Error analyzing video:", error);
     } finally {
@@ -104,12 +108,14 @@ export default function VideoEditor({ videoId, onProcess, onBack }: VideoEditorP
         const updatedSegmentsMap = new Map<string, Segment>(
           response.data.segments.map((s: Segment) => [s.id, s])
         );
-        setSegments(prev => 
-          prev.map(s => {
+        setSegments(prev => {
+          const merged = prev.map(s => {
             const updated = updatedSegmentsMap.get(s.id);
             return updated ? updated : s;
-          })
-        );
+          });
+          // Sort by start time to maintain chronological order
+          return merged.sort((a, b) => a.startTime - b.startTime);
+        });
       }
     } catch (error: any) {
       alert(error.response?.data?.error || "Erreur lors de la génération des métadonnées");
@@ -146,6 +152,54 @@ export default function VideoEditor({ videoId, onProcess, onBack }: VideoEditorP
     } finally {
       setProcessingSegmentId(null);
     }
+  };
+
+  const downloadAllSelected = async () => {
+    const selectedSegments = segments.filter(s => s.selected);
+    if (selectedSegments.length === 0) {
+      alert("Veuillez sélectionner au moins un segment");
+      return;
+    }
+
+    setGeneratingMetadata(true);
+    let successCount = 0;
+    
+    for (let i = 0; i < selectedSegments.length; i++) {
+      const segment = selectedSegments[i];
+      try {
+        console.log(`📥 Downloading segment ${i + 1}/${selectedSegments.length}...`);
+        const response = await axios.post(`/api/segment/${segment.id}/process`);
+        
+        if (response.data.success) {
+          // Update the segment
+          setSegments(prev => 
+            prev.map(s => 
+              s.id === segment.id 
+                ? { ...s, processed: true, outputPath: response.data.segment.outputPath }
+                : s
+            )
+          );
+
+          // Download the video file
+          const link = document.createElement('a');
+          link.href = response.data.segment.outputPath;
+          link.download = `short_segment_${i + 1}.mp4`;
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+          
+          successCount++;
+          
+          // Small delay between downloads
+          await new Promise(resolve => setTimeout(resolve, 1000));
+        }
+      } catch (error: any) {
+        console.error(`❌ Error downloading segment ${i + 1}:`, error);
+      }
+    }
+    
+    setGeneratingMetadata(false);
+    alert(`✅ ${successCount}/${selectedSegments.length} segments téléchargés avec succès !`);
   };
 
   const seekToSegment = (startTime: number) => {
@@ -390,29 +444,59 @@ export default function VideoEditor({ videoId, onProcess, onBack }: VideoEditorP
               )}
             </div>
 
-            {segments.length > 0 && !segments.some(s => s.title) && (
-              <button
-                onClick={handleGenerateMetadata}
-                disabled={segments.filter(s => s.selected).length === 0 || generatingMetadata}
-                className="w-full mt-6 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 text-white font-semibold py-3 px-6 rounded-lg transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-              >
-                {generatingMetadata ? (
-                  <>
-                    <div className="animate-spin rounded-full h-5 w-5 border-t-2 border-b-2 border-white"></div>
-                    Génération des métadonnées...
-                  </>
-                ) : (
-                  `🤖 Générer les métadonnées (${segments.filter(s => s.selected).length})`
-                )}
-              </button>
-            )}
+            {/* Action Buttons */}
+            <div className="mt-6 space-y-3">
+              {segments.length > 0 && !segments.some(s => s.title) && (
+                <>
+                  <button
+                    onClick={handleGenerateMetadata}
+                    disabled={segments.filter(s => s.selected).length === 0 || generatingMetadata}
+                    className="w-full bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 text-white font-semibold py-3 px-6 rounded-lg transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                  >
+                    {generatingMetadata ? (
+                      <>
+                        <div className="animate-spin rounded-full h-5 w-5 border-t-2 border-b-2 border-white"></div>
+                        Génération des métadonnées...
+                      </>
+                    ) : (
+                      `🤖 Générer les métadonnées (${segments.filter(s => s.selected).length})`
+                    )}
+                  </button>
+
+                  <button
+                    onClick={downloadAllSelected}
+                    disabled={segments.filter(s => s.selected).length === 0 || generatingMetadata}
+                    className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-semibold py-3 px-6 rounded-lg transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                  >
+                    {generatingMetadata ? (
+                      <>
+                        <div className="animate-spin rounded-full h-5 w-5 border-t-2 border-b-2 border-white"></div>
+                        Téléchargement en cours...
+                      </>
+                    ) : (
+                      <>
+                        📥 Télécharger les segments sélectionnés ({segments.filter(s => s.selected).length})
+                      </>
+                    )}
+                  </button>
+
+                  <div className="bg-gray-700/50 border border-gray-600 rounded-lg p-3 text-xs text-gray-400">
+                    <p className="mb-1"><strong className="text-gray-300">💡 2 options :</strong></p>
+                    <ul className="list-disc list-inside space-y-1 ml-2">
+                      <li><strong className="text-green-400">Générer métadonnées</strong> : Crée des titres/descriptions avec l'IA avant téléchargement</li>
+                      <li><strong className="text-blue-400">Télécharger directement</strong> : Télécharge les segments sans métadonnées</li>
+                    </ul>
+                  </div>
+                </>
+              )}
 
             {segments.some(s => s.title) && (
-              <div className="mt-6 bg-blue-500/10 border border-blue-500 rounded-lg p-4 text-blue-300 text-sm">
+              <div className="bg-blue-500/10 border border-blue-500 rounded-lg p-4 text-blue-300 text-sm">
                 <p className="font-semibold mb-2">✨ Métadonnées générées !</p>
                 <p className="text-xs">Cliquez sur "Télécharger" pour traiter un short spécifique. Le téléchargement de la vidéo YouTube et le découpage FFmpeg démarreront automatiquement.</p>
               </div>
             )}
+            </div>
           </div>
         </div>
       </div>

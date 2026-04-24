@@ -34,7 +34,14 @@ export default function VideoTimeline({
   return (
     <div>
       <div className="flex items-center justify-between mb-2 text-sm text-gray-400">
-        <span>Timeline des segments</span>
+        <div className="flex items-center gap-3">
+          <span>Timeline des segments</span>
+          <span className="text-xs">
+            <span className="text-green-400 font-semibold">{segments.filter(s => s.selected).length} sélectionnés</span>
+            {' / '}
+            <span className="text-purple-400">{segments.length} total</span>
+          </span>
+        </div>
         <span>{formatTime(currentTime)} / {formatTime(duration)}</span>
       </div>
 
@@ -43,7 +50,7 @@ export default function VideoTimeline({
         onClick={handleTimelineClick}
       >
         {/* Segments */}
-        {segments.map((segment) => {
+        {segments.map((segment, index) => {
           const left = (segment.startTime / duration) * 100;
           const width = ((segment.endTime - segment.startTime) / duration) * 100;
 
@@ -59,10 +66,10 @@ export default function VideoTimeline({
                 e.stopPropagation();
                 onSegmentClick(segment.id);
               }}
-              title={`${formatTime(segment.startTime)} - ${formatTime(segment.endTime)} (Score: ${(segment.score * 100).toFixed(0)}%)`}
+              title={`Segment #${index + 1}: ${formatTime(segment.startTime)} - ${formatTime(segment.endTime)} (Score: ${(segment.score * 100).toFixed(0)}%)`}
             >
               <div className="absolute inset-0 flex items-center justify-center text-xs font-semibold text-white opacity-0 hover:opacity-100 transition-opacity">
-                {Math.round(segment.endTime - segment.startTime)}s
+                #{index + 1} ({Math.round(segment.endTime - segment.startTime)}s)
               </div>
             </div>
           );
@@ -81,6 +88,16 @@ export default function VideoTimeline({
 
       <div className="mt-2 flex justify-between text-xs text-gray-500">
         <span>0:00</span>
+        <div className="flex items-center gap-4">
+          <div className="flex items-center gap-1">
+            <div className="w-3 h-3 rounded" style={{background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)'}}></div>
+            <span>Sélectionné</span>
+          </div>
+          <div className="flex items-center gap-1">
+            <div className="w-3 h-3 rounded" style={{background: 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)'}}></div>
+            <span>Non sélectionné</span>
+          </div>
+        </div>
         <span>{formatTime(duration)}</span>
       </div>
     </div>
