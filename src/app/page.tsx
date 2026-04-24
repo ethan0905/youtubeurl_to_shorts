@@ -3,11 +3,9 @@
 import { useState } from "react";
 import VideoInput from "@/components/VideoInput";
 import VideoEditor from "@/components/VideoEditor";
-import ProcessingStatus from "@/components/ProcessingStatus";
 
 export default function Home() {
   const [videoId, setVideoId] = useState<string | null>(null);
-  const [isProcessing, setIsProcessing] = useState(false);
 
   return (
     <main className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 text-white">
@@ -24,17 +22,11 @@ export default function Home() {
         {!videoId ? (
           <VideoInput onVideoDetected={setVideoId} />
         ) : (
-          <>
-            {isProcessing ? (
-              <ProcessingStatus videoId={videoId} />
-            ) : (
-              <VideoEditor 
-                videoId={videoId} 
-                onProcess={() => setIsProcessing(true)}
-                onBack={() => setVideoId(null)}
-              />
-            )}
-          </>
+          <VideoEditor 
+            videoId={videoId} 
+            onProcess={() => {}} // No longer needed, processing is done in editor
+            onBack={() => setVideoId(null)}
+          />
         )}
       </div>
     </main>

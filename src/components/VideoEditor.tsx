@@ -1,12 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import axios from "axios";
 import VideoTimeline from "./VideoTimeline";
 import dynamic from "next/dynamic";
 
 // Import ReactPlayer dynamically to avoid SSR issues
-const ReactPlayer = dynamic(() => import("react-player/youtube"), {
+const ReactPlayerComponent = dynamic(() => import("react-player/youtube"), {
   ssr: false,
   loading: () => <div className="flex items-center justify-center h-full bg-black">Loading player...</div>
 });
@@ -17,8 +17,10 @@ interface Segment {
   endTime: number;
   score: number;
   selected: boolean;
-  title?: string;
-  description?: string;
+  title?: string | null;
+  description?: string | null;
+  processed?: boolean;
+  outputPath?: string | null;
 }
 
 interface VideoEditorProps {
@@ -28,12 +30,17 @@ interface VideoEditorProps {
 }
 
 export default function VideoEditor({ videoId, onProcess, onBack }: VideoEditorProps) {
+  const playerRef = useRef<any>(null);
+  const [playerInstance, setPlayerInstance] = useState<any>(null);
   const [video, setVideo] = useState<any>(null);
   const [segments, setSegments] = useState<Segment[]>([]);
   const [loading, setLoading] = useState(true);
   const [analyzing, setAnalyzing] = useState(false);
+  const [generatingMetadata, setGeneratingMetadata] = useState(false);
+  const [processingSegmentId, setProcessingSegmentId] = useState<string | null>(null);
   const [currentTime, setCurrentTime] = useState(0);
   const [playing, setPlaying] = useState(false);
+  const [playerReady, setPlayerReady] = useState(false);
 
   useEffect(() => {
     loadVideo();
@@ -82,18 +89,96 @@ export default function VideoEditor({ videoId, onProcess, onBack }: VideoEditorP
     }
   };
 
-  const handleProcess = async () => {
+  const handleGenerateMetadata = async () => {
     const selectedSegments = segments.filter(s => s.selected);
     if (selectedSegments.length === 0) {
       alert("Veuillez sélectionner au moins un segment");
       return;
     }
-    onProcess();
+
+    setGeneratingMetadata(true);
+    try {
+      const response = await axios.post(`/api/video/${videoId}/generate-metadata`);
+      if (response.data.success) {
+        // Merge updated segments back into the full list
+        const updatedSegmentsMap = new Map<string, Segment>(
+          response.data.segments.map((s: Segment) => [s.id, s])
+        );
+        setSegments(prev => 
+          prev.map(s => {
+            const updated = updatedSegmentsMap.get(s.id);
+            return updated ? updated : s;
+          })
+        );
+      }
+    } catch (error: any) {
+      alert(error.response?.data?.error || "Erreur lors de la génération des métadonnées");
+    } finally {
+      setGeneratingMetadata(false);
+    }
+  };
+
+  const downloadSegment = async (segment: Segment) => {
+    setProcessingSegmentId(segment.id);
+    try {
+      const response = await axios.post(`/api/segment/${segment.id}/process`);
+      
+      if (response.data.success) {
+        // Update the segment
+        setSegments(prev => 
+          prev.map(s => 
+            s.id === segment.id 
+              ? { ...s, processed: true, outputPath: response.data.segment.outputPath }
+              : s
+          )
+        );
+
+        // Download the video file
+        const link = document.createElement('a');
+        link.href = response.data.segment.outputPath;
+        link.download = `short_${segment.title?.replace(/[^a-z0-9]/gi, '_') || segment.id}.mp4`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+      }
+    } catch (error: any) {
+      alert(error.response?.data?.error || "Erreur lors du téléchargement");
+    } finally {
+      setProcessingSegmentId(null);
+    }
   };
 
   const seekToSegment = (startTime: number) => {
-    setCurrentTime(startTime);
-    setPlaying(true);
+    console.log('🎯 [SEEK] Attempting to seek to:', startTime, 'seconds');
+    console.log('📍 [SEEK] Player instance:', playerInstance);
+    console.log('📍 [SEEK] Player ready:', playerReady);
+    
+    const player = playerInstance || playerRef.current;
+    
+    if (player && playerReady) {
+      try {
+        console.log('✅ [SEEK] Player found, calling seekTo...');
+        player.seekTo(startTime, 'seconds');
+        setPlaying(true);
+        console.log('✅ [SEEK] Seek command sent!');
+      } catch (error) {
+        console.error('❌ [SEEK] Error:', error);
+      }
+    } else {
+      console.warn('⚠️ [SEEK] Player not ready. Player:', !!player, 'Ready:', playerReady);
+      console.log('🔄 [SEEK] Will retry in 1 second...');
+      // Retry after player loads
+      setTimeout(() => {
+        const retryPlayer = playerInstance || playerRef.current;
+        if (retryPlayer) {
+          console.log('🔄 [SEEK] Retry successful, seeking to', startTime);
+          retryPlayer.seekTo(startTime, 'seconds');
+          setPlaying(true);
+        } else {
+          console.error('❌ [SEEK] Retry failed - player still not available');
+        }
+      }, 1000);
+    }
   };
 
   if (loading) {
@@ -133,12 +218,20 @@ export default function VideoEditor({ videoId, onProcess, onBack }: VideoEditorP
         <div className="lg:col-span-2">
           <div className="bg-gray-800 rounded-xl overflow-hidden shadow-2xl">
             <div className="aspect-video bg-black">
-              <ReactPlayer
+              <ReactPlayerComponent
+                ref={playerRef}
                 url={`https://www.youtube.com/watch?v=${video.youtubeId}`}
                 width="100%"
                 height="100%"
                 playing={playing}
                 controls
+                onReady={(player: any) => {
+                  console.log('🎬 [PLAYER] Ready! Instance:', player);
+                  console.log('🔍 [PLAYER] Has seekTo?', typeof player?.seekTo);
+                  playerRef.current = player;
+                  setPlayerInstance(player);
+                  setPlayerReady(true);
+                }}
                 onProgress={({ playedSeconds }) => setCurrentTime(playedSeconds)}
                 progressInterval={100}
               />
@@ -146,6 +239,22 @@ export default function VideoEditor({ videoId, onProcess, onBack }: VideoEditorP
 
             {/* Timeline */}
             <div className="p-4">
+              {/* Player Status Indicator */}
+              <div className="mb-2 flex items-center justify-between text-xs">
+                <div className={`flex items-center gap-2 ${playerReady ? 'text-green-400' : 'text-yellow-400'}`}>
+                  <div className={`w-2 h-2 rounded-full ${playerReady ? 'bg-green-400' : 'bg-yellow-400 animate-pulse'}`}></div>
+                  {playerReady ? '✅ Lecteur prêt' : '⏳ Chargement du lecteur...'}
+                </div>
+                {playerReady && (
+                  <button
+                    onClick={() => seekToSegment(0)}
+                    className="text-purple-400 hover:text-purple-300 px-2 py-1 bg-purple-500/10 rounded"
+                  >
+                    🔄 Test (0s)
+                  </button>
+                )}
+              </div>
+              
               {analyzing ? (
                 <div className="flex items-center justify-center py-6">
                   <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-purple-500 mr-3"></div>
@@ -156,8 +265,18 @@ export default function VideoEditor({ videoId, onProcess, onBack }: VideoEditorP
                   segments={segments}
                   duration={video.duration || 0}
                   currentTime={currentTime}
-                  onSegmentClick={toggleSegment}
-                  onSeek={seekToSegment}
+                  onSegmentClick={(segmentId: string) => {
+                    console.log('🎯 [TIMELINE] Segment clicked:', segmentId);
+                    const segment = segments.find(s => s.id === segmentId);
+                    if (segment) {
+                      console.log('🎯 [TIMELINE] Seeking to segment start:', segment.startTime, 's');
+                      seekToSegment(segment.startTime);
+                    }
+                  }}
+                  onSeek={(time: number) => {
+                    console.log('🎯 [TIMELINE] Timeline clicked, seeking to:', time, 's');
+                    seekToSegment(time);
+                  }}
                 />
               )}
             </div>
@@ -187,59 +306,112 @@ export default function VideoEditor({ videoId, onProcess, onBack }: VideoEditorP
                   </button>
                 </div>
               ) : (
-                segments.map((segment, index) => (
-                  <div
-                    key={segment.id}
-                    className={`border-2 rounded-lg p-3 cursor-pointer transition-all ${
-                      segment.selected
-                        ? "border-green-500 bg-green-500/10"
-                        : "border-gray-600 bg-gray-750 hover:border-gray-500"
-                    }`}
-                    onClick={() => toggleSegment(segment.id)}
-                  >
-                    <div className="flex items-start justify-between mb-2">
-                      <span className="text-sm font-semibold text-purple-400">
-                        Segment #{index + 1}
-                      </span>
-                      <div className="flex items-center">
-                        <span className="text-xs bg-gray-700 px-2 py-1 rounded mr-2">
-                          Score: {(segment.score * 100).toFixed(0)}%
-                        </span>
-                        {segment.selected && (
-                          <svg className="w-5 h-5 text-green-400" fill="currentColor" viewBox="0 0 20 20">
-                            <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                          </svg>
+                segments.map((segment, index) => {
+                  const hasMetadata = segment.title && segment.description;
+                  const isProcessing = processingSegmentId === segment.id;
+                  return (
+                    <div
+                      key={segment.id}
+                      className={`border-2 rounded-lg p-3 transition-all ${
+                        segment.selected
+                          ? "border-green-500 bg-green-500/10"
+                          : "border-gray-600 bg-gray-750 hover:border-gray-500"
+                      }`}
+                    >
+                      <div 
+                        className="cursor-pointer"
+                        onClick={() => toggleSegment(segment.id)}
+                      >
+                        <div className="flex items-start justify-between mb-2">
+                          <span className="text-sm font-semibold text-purple-400">
+                            Segment #{index + 1}
+                          </span>
+                          <div className="flex items-center">
+                            <span className="text-xs bg-gray-700 px-2 py-1 rounded mr-2">
+                              Score: {(segment.score * 100).toFixed(0)}%
+                            </span>
+                            {segment.selected && (
+                              <svg className="w-5 h-5 text-green-400" fill="currentColor" viewBox="0 0 20 20">
+                                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                              </svg>
+                            )}
+                          </div>
+                        </div>
+                        <div className="text-sm text-gray-300">
+                          {formatTime(segment.startTime)} - {formatTime(segment.endTime)}
+                          <span className="text-gray-500 ml-2">
+                            ({Math.round(segment.endTime - segment.startTime)}s)
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Metadata Display */}
+                      {hasMetadata && (
+                        <div className="mt-3 pt-3 border-t border-gray-700">
+                          <p className="text-sm font-semibold text-white mb-1">{segment.title}</p>
+                          <p className="text-xs text-gray-400">{segment.description}</p>
+                        </div>
+                      )}
+
+                      {/* Action Buttons */}
+                      <div className="mt-3 flex gap-2">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            console.log('🔘 [BUTTON] "Voir le segment" clicked for segment at', segment.startTime, 's');
+                            seekToSegment(segment.startTime);
+                          }}
+                          className="flex-1 text-xs text-purple-400 hover:text-purple-300 transition-colors py-2 px-3 bg-purple-500/10 rounded hover:bg-purple-500/20"
+                        >
+                          ▶ Voir le segment
+                        </button>
+                        {hasMetadata && (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              downloadSegment(segment);
+                            }}
+                            disabled={isProcessing}
+                            className={`flex-1 text-xs py-2 px-3 rounded font-semibold transition-colors ${
+                              isProcessing
+                                ? 'bg-yellow-600 cursor-wait'
+                                : segment.processed
+                                ? 'bg-green-600 hover:bg-green-700 text-white'
+                                : 'bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white'
+                            }`}
+                          >
+                            {isProcessing ? '⏳ Traitement...' : segment.processed ? '✓ Re-télécharger' : '📥 Télécharger'}
+                          </button>
                         )}
                       </div>
                     </div>
-                    <div className="text-sm text-gray-300">
-                      {formatTime(segment.startTime)} - {formatTime(segment.endTime)}
-                      <span className="text-gray-500 ml-2">
-                        ({Math.round(segment.endTime - segment.startTime)}s)
-                      </span>
-                    </div>
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        seekToSegment(segment.startTime);
-                      }}
-                      className="mt-2 text-xs text-purple-400 hover:text-purple-300 transition-colors"
-                    >
-                      ▶ Voir le segment
-                    </button>
-                  </div>
-                ))
+                  );
+                })
               )}
             </div>
 
-            {segments.length > 0 && (
+            {segments.length > 0 && !segments.some(s => s.title) && (
               <button
-                onClick={handleProcess}
-                disabled={segments.filter(s => s.selected).length === 0}
-                className="w-full mt-6 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 text-white font-semibold py-3 px-6 rounded-lg transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                onClick={handleGenerateMetadata}
+                disabled={segments.filter(s => s.selected).length === 0 || generatingMetadata}
+                className="w-full mt-6 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 text-white font-semibold py-3 px-6 rounded-lg transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
               >
-                Générer les Shorts ({segments.filter(s => s.selected).length})
+                {generatingMetadata ? (
+                  <>
+                    <div className="animate-spin rounded-full h-5 w-5 border-t-2 border-b-2 border-white"></div>
+                    Génération des métadonnées...
+                  </>
+                ) : (
+                  `🤖 Générer les métadonnées (${segments.filter(s => s.selected).length})`
+                )}
               </button>
+            )}
+
+            {segments.some(s => s.title) && (
+              <div className="mt-6 bg-blue-500/10 border border-blue-500 rounded-lg p-4 text-blue-300 text-sm">
+                <p className="font-semibold mb-2">✨ Métadonnées générées !</p>
+                <p className="text-xs">Cliquez sur "Télécharger" pour traiter un short spécifique. Le téléchargement de la vidéo YouTube et le découpage FFmpeg démarreront automatiquement.</p>
+              </div>
             )}
           </div>
         </div>
